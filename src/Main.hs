@@ -139,8 +139,14 @@ data Shoot = Shoot
   deriving (Show, Eq, Ord)
 
 sprout :: MonadRandom m => DNA -> Shoot -> m [Shoot]
-sprout dna Shoot{seed, point} = mapM ((<$> clone dna seed) . freshShoot) (neighbors point)
+sprout dna Shoot{seed, point} = mapM cloneIntoShoot (neighbors point)
   where freshShoot = flip Shoot
+        cloneIntoShoot pt = freshShoot pt <$> clone dna seed
+
+clone :: MonadRandom m => DNA -> Char -> m Char
+clone DNA{transitions} seed =
+  maybe (return seed) selection $ transitions Map.!? seed
+  where selection possibilities = maybe seed id <$> Rand.weightedMay possibilities
 
 data Point = P Int Int
   deriving (Show, Eq, Ord)
@@ -154,7 +160,7 @@ neighbors (P x y) =
 
 randomPoint xRange yRange = P <$> Rand.getRandomR xRange <*> Rand.getRandomR yRange
 
-type TransitionTable = Map Char (Map Float [Char])
+type TransitionTable = Map Char [(Char, Rational)]
 
 type TransitionCountTable = Map Char (Map Char Int)
 
@@ -168,17 +174,12 @@ toDNA :: Text -> DNA
 toDNA t = DNA t (tabulateTransitions $ countTransitions t)
 
 tabulateTransitions :: TransitionCountTable -> TransitionTable
-tabulateTransitions counts = Map.map normalizeRow counts
-  where normalizeRow :: Map Char Int -> Map Float [Char]
-        normalizeRow row =
-          let (total, row') =
-                Map.foldlWithKey'
-                (\(tot, r) k x -> (tot + fromIntegral x, (fromIntegral x, k):r))
-                (0.0, [])
-                row
-          in L.foldl' (\m (count, char) -> Map.alter (maybe (Just [char]) (Just . (char:))) (count / total) m)
-             Map.empty
-             row'
+tabulateTransitions = Map.map normalizeRow
+  where normalizeRow :: Map Char Int -> [(Char, Rational)]
+        normalizeRow row = map (fmap normalize) row'
+          where (total, row') = Map.foldlWithKey' (\(t, r) k x -> (t + x, (k, x):r)) (0, []) row
+                normalize count = fromIntegral count / fromIntegral total
+
 
 countTransitions :: Text -> TransitionCountTable
 countTransitions t =
@@ -190,32 +191,5 @@ countTransitions t =
 
 splice dna1 dna2 = toDNA $ T.append (raw dna1) (raw dna2)
 
--- | a kind of roulette wheel selection from a markove transition table
--- wherein a "ball" "bounces" across the "slots" of the transition row
--- until it comes to rest in a slot (or reaches the end of the row)
-clone :: MonadRandom m => DNA -> Char -> m Char
-clone DNA{transitions} seed =
-  maybe (return seed) selection $ transitions Map.!? seed
-  where selection possibilities = do
-          ball <- Rand.getRandomR (0.0 :: Float, 1.0)
-          possibilities' <- maybe [] id <$> (bounce ball $ Map.toList possibilities)
-          maybe seed id <$> choose possibilities'
-
 choose :: MonadRandom m => [a] -> m (Maybe a)
-choose [] = return Nothing
-choose xs = do
-  ball <- getWeight
-  randomlyWeight xs >>= bounce ball
-
-bounce :: MonadRandom m => Float -> [(Float, a)] -> m (Maybe a)
-bounce _ [] = return Nothing
-bounce velocity (slot@(gravity, choice):slots)
-  | velocity <= 0.0 = return $ Just choice
-  | otherwise = bounce (velocity - gravity) (slots ++ [slot])
-
-randomlyWeight :: MonadRandom m => [a] -> m [(Float, a)]
-randomlyWeight xs = mapM weight xs
-  where weight x = flip (,) x <$> getWeight
-
-getWeight :: MonadRandom m => m Float
-getWeight = Rand.getRandomR (0.0 :: Float, 1.0)
+choose = Rand.uniformMay
