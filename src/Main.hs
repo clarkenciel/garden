@@ -21,23 +21,25 @@ import qualified Data.List as L
 import           Control.Monad.Random (MonadRandom)
 import qualified Control.Monad.Random as Rand
 
+import qualified Graphics.Vty as Vty
+
+import Control.Arrow ((&&&))
 import Control.Monad (replicateM_, when)
 import Control.Concurrent (threadDelay)
-
-import qualified Graphics.Vty as Vty
+import System.Environment (getArgs)
 
 main :: IO ()
 main = do
-  ts <- collectWords
-  putStr "using plants from: "
-  TIO.putStrLn $ T.intercalate (T.pack ", ") ts
+  (countString, words) <- (head &&& tail) <$> getArgs
+  let count = read countString :: Int
+      ts = T.pack <$> words
 
   plants <- sequence $ zipWith (\t p -> p >>= sproutAt t) ts (repeat $ randomPoint (0, w) (0, h))
 
   term <- Vty.standardIOConfig >>= Vty.mkVty
-  loop term 100 (Garden plants) (C w h)
+  loop term count (Garden plants) (C w h)
   Vty.shutdown term
-  where (w, h) = (30, 30)
+  where (w, h) = (100, 60)
 
 collectWords =
   putStrLn "Please enter some words (press enter to finish collection)" >> collect []
@@ -51,7 +53,7 @@ collectWords =
 loop term count garden canvas@(C w h) = do
   render term canvas (diagramPlants (plants garden))
   garden' <- grow garden
-  threadDelay $ 100000
+  threadDelay $ 50000
   when (count > 1) $ loop term (pred count) garden' canvas
 
 render term canvas@(C w h) sigils = Vty.update term pic
