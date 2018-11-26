@@ -21,32 +21,43 @@ import qualified Data.List as L
 import           Control.Monad.Random (MonadRandom)
 import qualified Control.Monad.Random as Rand
 
-import Control.Monad (when)
+import Control.Monad (replicateM_, when)
 import Control.Concurrent (threadDelay)
-import System.Console.ANSI (clearScreen)
+
+import qualified Graphics.Vty as Vty
 
 main :: IO ()
 main = do
-  let t1 = T.pack "hello, world"
-      t2 = T.pack "goodbye, world"
-      t3 = T.pack "oogedy boogedy"
+  ts <- collectWords
   putStr "using plants from: "
-  TIO.putStrLn $ T.intercalate (T.pack ", ") [t1, t2, t3]
+  TIO.putStrLn $ T.intercalate (T.pack ", ") ts
 
-  let (w, h) = (30, 30)
-  points <- Rand.replicateM 3 $ randomPoint (0, w) (0, h)
-  plants <- mapM (uncurry sproutAt) (zip [t1, t2, t3] points)
+  plants <- sequence $ zipWith (\t p -> p >>= sproutAt t) ts (repeat $ randomPoint (0, w) (0, h))
 
-  loop 30 (Garden plants) (C w h)
+  term <- Vty.standardIOConfig >>= Vty.mkVty
+  loop term 100 (Garden plants) (C w h)
+  Vty.shutdown term
+  where (w, h) = (30, 30)
+
+collectWords =
+  putStrLn "Please enter some words (press enter to finish collection)" >> collect []
+  where collect ses = TIO.putStr prompt >> TIO.getLine >>= return . parse >>= maybe (return ses) (collect . (:ses))
+        prompt = T.pack " > "
+        parse t
+          | T.null t = Nothing
+          | otherwise = Just t
 
 
-loop count garden canvas@(C w h) = do
-  clearScreen
-  TIO.putStrLn $ T.replicate w (T.pack "-")
-  render canvas (diagramPlants (plants garden))
+loop term count garden canvas@(C w h) = do
+  render term canvas (diagramPlants (plants garden))
   garden' <- grow garden
-  threadDelay $ 10000
-  when (count > 1) $ loop (pred count) garden' canvas
+  threadDelay $ 100000
+  when (count > 1) $ loop term (pred count) garden' canvas
+
+render term canvas@(C w h) sigils = Vty.update term pic
+  where pic = Vty.picForLayers strokes
+        strokes = toStroke <$> sigils
+        toStroke (Sigil c (P x y)) = Vty.translate x y $ Vty.char Vty.defAttr c
 
 data Canvas = C Int Int
   deriving (Show)
@@ -58,8 +69,6 @@ instance Ord Sigil where
   compare (Sigil c p) (Sigil c' p') = case compare p p' of
     EQ -> compare c c'
     ordering -> ordering
-
-render canvas sigils = TIO.putStrLn . T.unlines . map T.pack $ draw canvas sigils
 
 positions (C width height) = [[P x y | x <- [0..width-1]] | y <- [0..height-1]]
 
@@ -115,8 +124,8 @@ graft p1 p2 = Plant (plantId p1) dna' shoots'
 growths :: MonadRandom m => Plant -> m [Shoot]
 growths Plant{dna, shoots} = concat <$> mapM (sprout dna) shoots
 
-cultivate plant = do
-  shoots' <- growths plant
+cultivate plant@Plant{shoots} = do
+  shoots' <- filter (not . (`Set.member` Set.fromList shoots)) <$> growths plant
   maybe plant (attach plant) <$> choose shoots'
 
 attach plant shoot = plant { shoots = shoot : (shoots plant) }
