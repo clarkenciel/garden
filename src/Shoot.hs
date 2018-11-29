@@ -27,9 +27,11 @@ graft s1 s2 = flip Shoot dna <$> seed
         dna2 = shootDna s2
         seed = let seed1 = shootSeed s1
                    seed2 = shootSeed s2
-               in if occurrencesOf seed1 dna1 == occurrencesOf seed2 dna2
+                   seed1Occurrences = occurrencesOf seed1 dna1 + occurrencesOf seed1 dna2
+                   seed2Occurrences = occurrencesOf seed2 dna2 + occurrencesOf seed2 dna2
+               in if seed1Occurrences == seed2Occurrences
                   then coinToss seed1 seed2
-                  else if occurrencesOf seed1 dna1 > occurrencesOf seed2 dna2
+                  else if seed1Occurrences > seed2Occurrences
                        then return seed1
                        else return seed2
         coinToss x y = do
