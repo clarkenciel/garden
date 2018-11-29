@@ -1,9 +1,4 @@
-module DNA (
-    DNA
-  , toDNA
-  , clone
-  , splice
-  ) where
+module DNA where
 
 import Control.Monad.Random (MonadRandom)
 import qualified Control.Monad.Random as Rand
@@ -39,6 +34,11 @@ countTransitions t = fst $ T.foldl' logTransition (Map.empty, firstChar) (T.snoc
         upsert char = Just . Map.alter (Just . maybe 1 succ) char
         firstChar = T.head t
         otherChars = T.tail t
+
+occurrencesOf :: Char -> DNA -> Int
+occurrencesOf s (DNA tt) = Map.foldl' count 0 tt
+  where count n r = Map.foldlWithKey' countOccurrence n r
+        countOccurrence n c _ = if c == s then n + 1 else n
 
 instance Semigroup DNA where
   (<>) = splice
